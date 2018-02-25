@@ -2,6 +2,9 @@ from bs4 import BeautifulSoup
 import urllib.request
 from urllib.parse import urlparse
 import re
+import json
+import overpass
+import os
 
 
 #Load all the relations from the WikiProject page
@@ -69,6 +72,23 @@ for relation in confirmedRoutes:
 
 print(routes)
 
+#create a dataset
+mapboxURL = "https://api.mapbox.com"
+accessToken = "?access_token=sk.eyJ1IjoiYWNhLW1hcGJveCIsImEiOiJjamRrdnF4cTEwMTVxMnhvM290ODlnZ3F2In0.9CqyPlXgYiF1b77iJ8XjCA"
+newDataSetEndpoint = "/datasets/v1/aca-mapbox";
+
+
+url = mapboxURL + newDataSetEndpoint + accessToken
+
+payload = {"name": "foo","description": "bar"}
+params = json.dumps(payload).encode('utf8')
+
+req = urllib.request.Request(url, data=params, headers={'content-type': 'application/json'})
+response = urllib.request.urlopen(req)
+datasetId = json.load(response)["id"]
+
+
+
 #Use overpass turbo to convert xml to geojson
 for relation in routes:
     payload = "[out:json]; (relation(" + str(relation) + "););out body;>;out skel qt;"
@@ -78,9 +98,40 @@ for relation in routes:
     response = urllib.request.urlopen(req)
     #print(response.read())
 
-
+    print("HELLO")
     #create a json file for the
-    filename = str(relation) + ".geojson"
+    filename = str(relation) + ".json"
     file = open(filename, "wb")
     file.write(response.read())
     file.close()
+
+    command = "osmtogeojson " + filename + " > " + str(relation) + ".geojson"
+    os.system(command)
+
+
+
+#add each feature to the datasets
+    filename = str(relation) + ".geojson"
+    jsonData = json.load(open(filename))
+
+    newFeatureEndpoint = "/datasets/v1/aca-mapbox/" + datasetId + "/features/"#"{feature_id}"
+
+    for feature in jsonData["features"]:
+        featureId = str(feature['id']).replace('/', "%2F")
+        print(featureId)
+        #featureId = re.findall('\d+',feature["id"])
+
+        feature = str(feature).replace('\'', '\"')
+        feature = str(feature).replace("\"s", "\'s")
+        feature = str(feature).replace(" \'", " \"")
+        feature = str(feature).replace("\"seeded\"", "\'seeded\'")
+
+        bFeature = str(feature).encode('utf-8')
+
+        url = mapboxURL + newFeatureEndpoint  + featureId + accessToken
+        print(feature)
+        print(url)
+
+
+        req = urllib.request.Request(url, data = bFeature, headers={'content-type': 'application/json'}, method='PUT')
+        response = urllib.request.urlopen(req)
